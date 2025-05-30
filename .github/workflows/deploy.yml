@@ -18,8 +18,15 @@ jobs:
       - name: Create .env file
         run: echo "VITE_MAPBOX_TOKEN=${{ secrets.VITE_MAPBOX_TOKEN }}" > .env
       - run: npm run build
+      - name: Set deploy branch for develop
+        if: github.ref == 'refs/heads/develop'
+        run: echo "DEPLOY_BRANCH=gh-pages-develop" >> $GITHUB_ENV
+      - name: Set deploy branch for main
+        if: github.ref == 'refs/heads/main'
+        run: echo "DEPLOY_BRANCH=gh-pages" >> $GITHUB_ENV
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          publish_branch: ${{ env.DEPLOY_BRANCH }}
