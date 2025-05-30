@@ -7,20 +7,21 @@ export default defineConfig({
   plugins: [react(), VitePWA({
     registerType: 'autoUpdate',
     manifest: {
-      name: 'Traveller',
-      short_name: 'Traveller',
+      name: 'Travel Marks',
+      short_name: 'TravelMarks',
       start_url: '.',
       display: 'standalone',
-      background_color: '#ffffff',
-      theme_color: '#317EFB',
+      background_color: '#F4F6FF',
+      theme_color: '#10375C',
+      description: 'A minimal, modern PWA for animating travel routes on a map.',
       icons: [
         {
-          src: 'pwa-192x192.png',
+          src: 'icon-192.png',
           sizes: '192x192',
           type: 'image/png',
         },
         {
-          src: 'pwa-512x512.png',
+          src: 'icon-512.png',
           sizes: '512x512',
           type: 'image/png',
         },
