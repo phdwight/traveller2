@@ -1,8 +1,22 @@
+:root {
+  --color-primary: #1a1a1d;
+  --color-secondary: #3b1c32;
+  --color-accent: #6a1e55;
+  --color-bg: #a64d79;
+}
+
 #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
   text-align: center;
+}
+
+body,
+.app-container {
+  background: var(--color-bg);
+  /* Subtle diagonal lines texture */
+  background-image: repeating-linear-gradient(135deg, rgba(255,255,255,0.07) 0px, rgba(255,255,255,0.07) 2px, transparent 2px, transparent 16px);
 }
 
 .logo {
@@ -62,7 +76,7 @@
 .input-bar input {
   padding: 0.5rem;
   font-size: 1rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-accent);
   border-radius: 4px;
   min-width: 220px;
 }
@@ -70,7 +84,7 @@
 .input-bar button {
   padding: 0.5rem 1rem;
   font-size: 1rem;
-  background: #3b82f6;
+  background: var(--color-primary);
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -91,7 +105,7 @@
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
-  background: #e5e5e5;
+  background: var(--color-accent);
   margin-bottom: 2rem;
   position: relative;
 }
@@ -105,27 +119,65 @@
 .places-list {
   margin-bottom: 1rem;
   color: #333;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   max-width: 700px;
   width: 100%;
-  min-width: 220px;
+  min-width: 320px;
   overflow-y: auto;
   overflow-x: hidden;
   white-space: normal;
   text-align: left;
   background: #fff;
-  border-radius: 6px;
-  padding: 0.5rem 1rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  border-left: 4px solid var(--color-primary);
+  border-radius: 10px;
+  padding: 0.4rem 0.8rem;
+  gap: 0.2rem;
+  min-height: 36px;
+  max-height: 10.5em; /* ~6 items at 1.7em each incl. gap/padding */
+  box-shadow: 0 2px 8px rgba(82, 53, 123, 0.08);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
 }
 
 .places-list span {
-  display: block;
-  margin-bottom: 0.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-bg);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.05rem;
+  font-size: 0.95em;
+  color: var(--color-primary);
+  box-shadow: 0 1px 2px rgba(100, 141, 179, 0.04);
+  transition: background 0.2s, color 0.2s;
+}
+
+.places-list span:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.remove-btn {
+  margin-left: 1rem;
+  font-size: 1.2em;
+  border-radius: 50%;
+  width: 2em;
+  height: 2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.remove-btn:hover {
+  background: var(--color-secondary);
+  color: #fff;
 }
 
 @media (max-width: 800px) {
@@ -147,7 +199,7 @@
   position: absolute;
   z-index: 10;
   background: #fff;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-secondary);
   border-radius: 4px;
   margin: 0.25rem 0 0 0;
   padding: 0;
@@ -164,13 +216,8 @@
   transition: background 0.2s;
 }
 
-.suggestions-list li:hover {
-  background: #f0f4ff;
-}
-
-.remove-btn:hover {
+.suggestions-list li:hover,
+.suggestions-list li[style*='background'] {
+  background: var(--color-accent) !important;
   color: #fff;
-  background: #e11d48;
-  border-radius: 50%;
-  transition: background 0.15s, color 0.15s;
 }
