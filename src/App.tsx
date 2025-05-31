@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useLayoutEffect } from 'react';
 import mapboxgl from 'mapbox-gl';
 import './App.css';
 
@@ -53,6 +53,28 @@ const themes = [
       '--color-on-bg': '#10375C',
     },
   },
+  {
+    name: 'Fresh Grove',
+    colors: {
+      '--color-bg': '#DDEB9D',
+      '--color-surface': '#A0C878',
+      '--color-primary': '#143D60',
+      '--color-accent': '#EB5B00',
+      '--color-on-surface': '#143D60',
+      '--color-on-bg': '#143D60',
+    },
+  },
+  {
+    name: 'Spring Picnic',
+    colors: {
+      '--color-bg': '#C7DB9C',
+      '--color-surface': '#FFF0BD',
+      '--color-primary': '#E50046',
+      '--color-accent': '#FDAB9E',
+      '--color-on-surface': '#E50046',
+      '--color-on-bg': '#143D60',
+    },
+  },
 ];
 
 const getDefaultThemeIdx = () => {
@@ -71,6 +93,8 @@ function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const placesEndRef = useRef<HTMLSpanElement | null>(null);
+  const placesListRef = useRef<HTMLDivElement | null>(null);
   const [places, setPlaces] = useState<string[]>([]); // Start with empty places
   const [input, setInput] = useState('');
   const [coords, setCoords] = useState<[number, number][]>([]);
@@ -240,6 +264,9 @@ function App() {
       setPlaces([...places, match.place_name]);
       setInput('');
       setSuggestions([]);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
     }
   };
 
@@ -247,6 +274,9 @@ function App() {
     setPlaces([...places, place]);
     setInput('');
     setSuggestions([]);
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
   };
 
   useEffect(() => {
@@ -293,6 +323,7 @@ function App() {
     let marker: mapboxgl.Marker | null = null;
     let routeLayerAdded = false;
     let routeSourceAdded = false;
+    let cleanupDone = false;
 
     // Remove previous route and markers
     if (map.getLayer('route')) map.removeLayer('route');
@@ -303,30 +334,19 @@ function App() {
     marker = new mapboxgl.Marker({ color: '#eab308' })
       .setLngLat(coords[0])
       .addTo(map);
-    map.flyTo({ center: coords[0], zoom: 10, speed: 1.2 });
+
     let progressCoords: [number, number][] = [coords[0]];
     let i = 0; // Start animating from the 1st place
-    map.addSource('route', {
-      type: 'geojson',
-      data: {
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: progressCoords },
-        properties: {},
-      },
-    });
-    routeSourceAdded = true;
-    map.addLayer({
-      id: 'route',
-      type: 'line',
-      source: 'route',
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': '#3b82f6',
-        'line-width': 4,
-        'line-dasharray': [2, 3], // Dashed line: 2px dash, 3px gap
-      },
-    });
-    routeLayerAdded = true;
+
+    function cleanup() {
+      if (cleanupDone) return;
+      cleanupDone = true;
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      if (marker) marker.remove();
+      if (routeLayerAdded && map.getLayer('route')) map.removeLayer('route');
+      if (routeSourceAdded && map.getSource('route')) map.removeSource('route');
+    }
+
     function animateSegment(start: [number, number], end: [number, number], onDone: () => void) {
       let t = 0;
       const duration = 3500;
@@ -420,13 +440,38 @@ function App() {
       map.fitBounds(bounds, { padding: 60, duration: 900 });
     }
     setAnimating(true);
-    animateRoute();
-    return () => {
-      if (animationFrame) cancelAnimationFrame(animationFrame);
-      if (marker) marker.remove();
-      if (routeLayerAdded) map.removeLayer('route');
-      if (routeSourceAdded) map.removeSource('route');
+    // Step 1: flyTo the starting point, then animate route after moveend
+    map.flyTo({ center: coords[0], zoom: 10, speed: 1.2 });
+    const onMoveEnd = () => {
+      // Step 2: Add route source/layer and start animation
+      if (map.getLayer('route')) map.removeLayer('route');
+      if (map.getSource('route')) map.removeSource('route');
+      map.addSource('route', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: progressCoords },
+          properties: {},
+        },
+      });
+      routeSourceAdded = true;
+      map.addLayer({
+        id: 'route',
+        type: 'line',
+        source: 'route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#3b82f6',
+          'line-width': 4,
+          'line-dasharray': [2, 3],
+        },
+      });
+      routeLayerAdded = true;
+      animateRoute();
+      map.off('moveend', onMoveEnd);
     };
+    map.on('moveend', onMoveEnd);
+    return cleanup;
   }, [coords, animationRequested]);
 
   // Shared button style for Add and Start Animation
@@ -441,6 +486,15 @@ function App() {
     transition: 'background 0.2s, opacity 0.2s',
     marginRight: 8,
   };
+
+  // Scroll last place into view if list is scrollable (do not focus it)
+  useLayoutEffect(() => {
+    if (!placesListRef.current || !placesEndRef.current) return;
+    const list = placesListRef.current;
+    if (list.scrollHeight > list.clientHeight) {
+      placesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [places]);
 
   return (
     <div className="app-container" style={{ background: 'var(--color-bg)', backgroundImage: 'var(--bg-texture)', backgroundSize: '340px 340px', backgroundBlendMode: 'soft-light', color: 'var(--color-on-bg)' }}>
@@ -554,9 +608,18 @@ function App() {
           ))}
         </ul>
       )}
-      <div className="places-list" style={{ background: 'var(--color-surface)', color: 'var(--color-on-surface)', borderRadius: 8, boxShadow: '0 1px 4px #0001', maxWidth: 420, width: '100%', margin: '0.7em auto', padding: '0.5em 0.7em', display: 'flex', flexDirection: 'column', gap: '0.3em', maxHeight: '12em', overflowY: 'auto', boxSizing: 'border-box', border: '2px solid var(--color-surface)' }}>
+      <div
+        className="places-list"
+        ref={placesListRef}
+        style={{ background: 'var(--color-surface)', color: 'var(--color-on-surface)', borderRadius: 8, boxShadow: '0 1px 4px #0001', maxWidth: 420, width: '100%', margin: '0.7em auto', padding: '0.5em 0.7em', display: 'flex', flexDirection: 'column', gap: '0.3em', maxHeight: '12em', overflowY: 'auto', boxSizing: 'border-box', border: '2px solid var(--color-surface)' }}
+      >
         {places.map((place, idx) => (
-          <span key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span
+            key={idx}
+            ref={idx === places.length - 1 ? placesEndRef : undefined}
+            tabIndex={-1}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          >
             <span style={{ flex: 1, color: 'var(--color-on-surface)' }}>{place}</span>
             <button
               aria-label={`Remove ${place}`}
