@@ -104,8 +104,59 @@ function App() {
   const [highlightedIdx, setHighlightedIdx] = useState<number>(-1);
   const [themeIdx, setThemeIdx] = useState(getDefaultThemeIdx());
   const [animationRequested, setAnimationRequested] = useState(false);
+  const [animationSpeed, setAnimationSpeed] = useState(1); // 0.5 = slow, 1 = normal, 2 = fast
+  const [animationPaused, setAnimationPaused] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [totalDistance, setTotalDistance] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState(0);
+  const [currentSegment, setCurrentSegment] = useState(0);
+  const animationStateRef = useRef<{
+    isPaused: boolean;
+    currentFrame: number | null;
+  }>({ isPaused: false, currentFrame: null });
 
-  // Geocode places to coordinates
+  // Calculate distance between two coordinates using Haversine formula
+  const calculateDistance = (coord1: [number, number], coord2: [number, number]): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (coord2[1] - coord1[1]) * Math.PI / 180;
+    const dLon = (coord2[0] - coord1[0]) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(coord1[1] * Math.PI / 180) * Math.cos(coord2[1] * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Play sound effect
+  const playSound = (type: 'start' | 'segment' | 'complete') => {
+    if (!soundEnabled) return;
+    
+    // Create audio context and generate simple tones
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // Different frequencies for different events
+    const frequencies = {
+      start: 440,    // A note
+      segment: 523,  // C note
+      complete: 659  // E note
+    };
+    
+    oscillator.frequency.setValueAtTime(frequencies[type], audioContext.currentTime);
+    oscillator.type = 'sine';
+    
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.2);
+  };
+
+  // Geocode places to coordinates and calculate total distance
   useEffect(() => {
     async function fetchCoords() {
       const results: [number, number][] = [];
@@ -119,6 +170,20 @@ function App() {
         }
       }
       setCoords(results);
+      
+      // Calculate total distance and estimated time
+      if (results.length > 1) {
+        let totalDist = 0;
+        for (let i = 0; i < results.length - 1; i++) {
+          totalDist += calculateDistance(results[i], results[i + 1]);
+        }
+        setTotalDistance(totalDist);
+        // Estimate travel time (assuming 60 km/h average speed)
+        setEstimatedTime(totalDist / 60);
+      } else {
+        setTotalDistance(0);
+        setEstimatedTime(0);
+      }
     }
     fetchCoords();
   }, [places]);
@@ -129,18 +194,44 @@ function App() {
       setSuggestions([]);
       return;
     }
+    
+    if (!mapboxgl.accessToken) {
+      console.warn('Mapbox token is missing. Suggestions will not work.');
+      setSuggestions([]);
+      return;
+    }
+    
     let ignore = false;
     const fetchSuggestions = async () => {
-      const res = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?autocomplete=true&access_token=${mapboxgl.accessToken}`
-      );
-      const data = await res.json();
-      if (!ignore) {
-        setSuggestions(data.features || []);
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?autocomplete=true&access_token=${mapboxgl.accessToken}`
+        );
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const data = await res.json();
+        console.log('Mapbox API response:', data); // Debug log
+        
+        if (!ignore) {
+          setSuggestions(data.features || []);
+        }
+      } catch (error) {
+        console.error('Error fetching suggestions:', error);
+        if (!ignore) {
+          setSuggestions([]);
+        }
       }
     };
-    fetchSuggestions();
-    return () => { ignore = true; };
+    
+    // Debounce the API calls
+    const timeoutId = setTimeout(fetchSuggestions, 300);
+    return () => { 
+      ignore = true; 
+      clearTimeout(timeoutId);
+    };
   }, [input]);
 
   // Initialize map
@@ -258,8 +349,11 @@ function App() {
   }, [coords]);
 
   const handleAddPlace = () => {
-    // Only allow adding if the input matches a suggestion
-    const match = suggestions.find(s => s.place_name === input.trim());
+    const trimmedInput = input.trim();
+    if (!trimmedInput) return;
+    
+    // If we have suggestions and the input matches one, use it
+    const match = suggestions.find(s => s.place_name === trimmedInput);
     if (match) {
       setPlaces([...places, match.place_name]);
       setInput('');
@@ -267,6 +361,18 @@ function App() {
       setTimeout(() => {
         inputRef.current?.focus();
       }, 0);
+      return;
+    }
+    
+    // If no Mapbox token or no suggestions, allow manual entry
+    if (!mapboxgl.accessToken || suggestions.length === 0) {
+      setPlaces([...places, trimmedInput]);
+      setInput('');
+      setSuggestions([]);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+      return;
     }
   };
 
@@ -315,7 +421,7 @@ function App() {
     root.style.setProperty('--bg-texture', encoded);
   }, [themeIdx]);
 
-  // Animate path and marker from place 1 to end, then show all markers and path
+  // Enhanced animation with speed control and pause/resume
   useEffect(() => {
     if (!animationRequested || !mapRef.current || coords.length < 2) return;
     const map = mapRef.current;
@@ -324,6 +430,11 @@ function App() {
     let routeLayerAdded = false;
     let routeSourceAdded = false;
     let cleanupDone = false;
+
+    // Reset animation state
+    setAnimationPaused(false);
+    setCurrentSegment(0);
+    animationStateRef.current = { isPaused: false, currentFrame: null };
 
     // Remove previous route and markers
     if (map.getLayer('route')) map.removeLayer('route');
@@ -338,6 +449,9 @@ function App() {
     let progressCoords: [number, number][] = [coords[0]];
     let i = 0; // Start animating from the 1st place
 
+    // Play start sound
+    playSound('start');
+
     function cleanup() {
       if (cleanupDone) return;
       cleanupDone = true;
@@ -349,12 +463,21 @@ function App() {
 
     function animateSegment(start: [number, number], end: [number, number], onDone: () => void) {
       let t = 0;
-      const duration = 3500;
+      const baseDuration = 3500;
+      const duration = baseDuration / animationSpeed; // Adjust duration based on speed
       const startTime = performance.now();
+      
       function easeInOutCubic(x: number) {
         return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
       }
+      
       function frame(now: number) {
+        // Check if animation is paused
+        if (animationStateRef.current.isPaused) {
+          animationStateRef.current.currentFrame = requestAnimationFrame(frame);
+          return;
+        }
+        
         t = Math.min((now - startTime) / duration, 1);
         const smoothT = easeInOutCubic(t);
         const lng = start[0] + (end[0] - start[0]) * smoothT;
@@ -385,13 +508,16 @@ function App() {
             geometry: { type: 'LineString', coordinates: progressCoords },
             properties: {},
           });
+          playSound('segment'); // Sound when reaching a destination
           onDone();
         }
       }
       animationFrame = requestAnimationFrame(frame);
     }
+    
     function animateRoute() {
       if (i < coords.length - 1) {
+        setCurrentSegment(i + 1);
         const start = coords[i];
         const end = coords[i + 1];
         animateSegment(start, end, () => {
@@ -401,11 +527,13 @@ function App() {
           } else {
             setAnimating(false);
             setAnimationRequested(false);
+            playSound('complete'); // Sound when animation completes
             showAllMarkersAndRoute();
           }
         });
       }
     }
+    
     function showAllMarkersAndRoute() {
       if (marker) marker.remove();
       if (routeLayerAdded && map.getLayer('route')) map.removeLayer('route');
@@ -439,6 +567,7 @@ function App() {
       const bounds = coords.reduce((b, c) => b.extend(c), new mapboxgl.LngLatBounds(coords[0], coords[0]));
       map.fitBounds(bounds, { padding: 60, duration: 900 });
     }
+    
     setAnimating(true);
     // Step 1: flyTo the starting point, then animate route after moveend
     map.flyTo({ center: coords[0], zoom: 10, speed: 1.2 });
@@ -472,19 +601,24 @@ function App() {
     };
     map.on('moveend', onMoveEnd);
     return cleanup;
-  }, [coords, animationRequested]);
+  }, [coords, animationRequested, animationSpeed]);
+
+  // Handle pause/resume animation
+  useEffect(() => {
+    animationStateRef.current.isPaused = animationPaused;
+  }, [animationPaused]);
 
   // Shared button style for Add and Start Animation
   const buttonStyle: React.CSSProperties = {
     border: 'none',
-    borderRadius: 7,
-    padding: '0.5em 1.1em',
-    fontWeight: 700,
-    fontSize: '1em',
+    borderRadius: 6,
+    padding: '0.4em 0.8em',
+    fontWeight: 600,
+    fontSize: '0.9em',
     boxShadow: '0 1px 4px #0001',
     cursor: 'pointer',
     transition: 'background 0.2s, opacity 0.2s',
-    marginRight: 8,
+    marginRight: 6,
   };
 
   // Scroll last place into view if list is scrollable (do not focus it)
@@ -497,8 +631,8 @@ function App() {
   }, [places]);
 
   return (
-    <div className="app-container" style={{ background: 'var(--color-bg)', backgroundImage: 'var(--bg-texture)', backgroundSize: '340px 340px', backgroundBlendMode: 'soft-light', color: 'var(--color-on-bg)' }}>
-      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+    <div className="app-container" style={{ background: 'var(--color-bg)', backgroundImage: 'var(--bg-texture)', backgroundSize: '340px 340px', backgroundBlendMode: 'soft-light', color: 'var(--color-on-bg)', padding: '0 12px', minHeight: '100vh', boxSizing: 'border-box' }}>
+      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 10 }}>
         <select
           aria-label="Select theme"
           value={themeIdx}
@@ -508,17 +642,151 @@ function App() {
               inputRef.current?.focus();
             }, 0);
           }}
-          style={{ padding: '0.3em 1.2em 0.3em 0.7em', borderRadius: 6, border: '1px solid var(--color-accent)', background: 'var(--color-surface)', color: 'var(--color-on-surface)', fontWeight: 500 }}
+          style={{ padding: '0.25em 1em 0.25em 0.6em', borderRadius: 6, border: '1px solid var(--color-accent)', background: 'var(--color-surface)', color: 'var(--color-on-surface)', fontWeight: 500, fontSize: '0.9em' }}
         >
           {themes.map((t, i) => (
             <option value={i} key={t.name} style={{ color: t.colors['--color-on-surface'] }}>{t.name}</option>
           ))}
         </select>
       </div>
-      <h1 style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: '2.1rem', margin: '0.5em 0 0.2em 0', letterSpacing: '0.01em' }}>
+      <h1 style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 'clamp(1.5rem, 5vw, 2.1rem)', margin: '0.4em 0 0.3em 0', letterSpacing: '0.01em', textAlign: 'center' }}>
         Travel Marks
       </h1>
-      <div className="input-bar" style={{ background: 'var(--color-surface)', borderRadius: 8, boxShadow: '0 1px 4px #0001', padding: '0.5em', maxWidth: 420, width: '100%', margin: '0 auto 0.7em auto', display: 'flex', alignItems: 'center', color: 'var(--color-on-surface)', overflow: 'hidden' }}>
+      {!mapboxgl.accessToken && (
+        <div style={{ 
+          background: 'var(--color-accent)', 
+          color: 'var(--color-on-surface)', 
+          padding: '0.3em 0.6em', 
+          borderRadius: 6, 
+          fontSize: '0.85em', 
+          margin: '0 auto 0.5em auto', 
+          maxWidth: '100%',
+          textAlign: 'center'
+        }}>
+          ⚠️ Mapbox token missing. Add VITE_MAPBOX_TOKEN to .env file for suggestions.
+        </div>
+      )}
+      {/* Enhanced Animation Controls */}
+      {coords.length > 1 && (
+        <div style={{ 
+          background: 'var(--color-surface)', 
+          borderRadius: 8, 
+          boxShadow: '0 1px 4px #0001', 
+          padding: '0.5em', 
+          margin: '0 auto 0.6em auto', 
+          maxWidth: '100%',
+          border: '1px solid var(--color-accent)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.4em'
+        }}>
+          {/* Trip Info */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            fontSize: '0.85em',
+            color: 'var(--color-on-surface)'
+          }}>
+            <span>📏 {totalDistance.toFixed(1)} km</span>
+            <span>⏱️ {(estimatedTime * 60).toFixed(0)} min</span>
+            {animating && <span>📍 Stop {currentSegment}/{coords.length - 1}</span>}
+          </div>
+          
+          {/* Animation Controls */}
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.4em',
+            flexWrap: 'wrap'
+          }}>
+            {/* Speed Control */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3em', flex: 1, minWidth: '120px' }}>
+              <span style={{ fontSize: '0.8em', color: 'var(--color-on-surface)', whiteSpace: 'nowrap' }}>Speed:</span>
+              <input
+                type="range"
+                min="0.5"
+                max="3"
+                step="0.5"
+                value={animationSpeed}
+                onChange={e => setAnimationSpeed(Number(e.target.value))}
+                disabled={animating}
+                style={{ 
+                  flex: 1,
+                  height: '4px',
+                  background: 'var(--color-accent)',
+                  borderRadius: '2px',
+                  outline: 'none',
+                  cursor: animating ? 'not-allowed' : 'pointer'
+                }}
+              />
+              <span style={{ fontSize: '0.8em', color: 'var(--color-accent)', minWidth: '24px' }}>
+                {animationSpeed === 0.5 ? '🐌' : animationSpeed === 1 ? '🚶' : animationSpeed === 1.5 ? '🚗' : animationSpeed === 2 ? '🏃' : '🚀'}
+              </span>
+            </div>
+            
+            {/* Control Buttons */}
+            <div style={{ display: 'flex', gap: '0.3em' }}>
+              {/* Play/Pause Button */}
+              {animating && (
+                <button
+                  onClick={() => setAnimationPaused(!animationPaused)}
+                  style={{
+                    ...buttonStyle,
+                    background: 'var(--color-accent)',
+                    color: 'var(--color-on-surface)',
+                    height: 32,
+                    padding: '0.3em 0.6em',
+                    fontSize: '0.8em',
+                    marginRight: 0,
+                  }}
+                >
+                  {animationPaused ? '▶️' : '⏸️'}
+                </button>
+              )}
+              
+              {/* Start Animation Button */}
+              <button
+                onClick={() => setAnimationRequested(true)}
+                disabled={animating || coords.length < 2}
+                style={{
+                  ...buttonStyle,
+                  background: 'var(--color-accent)',
+                  color: 'var(--color-on-surface)',
+                  opacity: animating || coords.length < 2 ? 0.6 : 1,
+                  cursor: animating || coords.length < 2 ? 'not-allowed' : 'pointer',
+                  height: 32,
+                  padding: '0.3em 0.6em',
+                  fontSize: '0.8em',
+                  marginRight: 0,
+                }}
+              >
+                {animating ? '🎬' : '🎬 Start'}
+              </button>
+              
+              {/* Sound Toggle */}
+              <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                style={{
+                  ...buttonStyle,
+                  background: soundEnabled ? 'var(--color-accent)' : 'var(--color-surface)',
+                  color: 'var(--color-on-surface)',
+                  height: 32,
+                  padding: '0.3em 0.6em',
+                  fontSize: '0.8em',
+                  marginRight: 0,
+                  border: '1px solid var(--color-accent)',
+                }}
+                title={soundEnabled ? 'Sound On' : 'Sound Off'}
+              >
+                {soundEnabled ? '🔊' : '🔇'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="input-bar" style={{ background: 'var(--color-surface)', borderRadius: 8, boxShadow: '0 1px 4px #0001', padding: '0.4em', maxWidth: '100%', width: '100%', margin: '0 auto 0.6em auto', display: 'flex', alignItems: 'center', color: 'var(--color-on-surface)', overflow: 'hidden', gap: '6px' }}>
         <input
           ref={inputRef}
           type="text"
@@ -527,10 +795,10 @@ function App() {
             setInput(e.target.value);
             setHighlightedIdx(-1);
           }}
-          placeholder="Add a place (city, address, etc.)"
+          placeholder="Add a place..."
           disabled={animating}
           autoComplete="off"
-          style={{ flex: 1, minWidth: 0, maxWidth: '100%', padding: '0.5em 0.7em', borderRadius: 7, border: '1px solid var(--color-accent)', background: 'var(--color-bg)', color: 'var(--color-on-bg)', fontSize: '1em', marginRight: 8, height: 40, boxSizing: 'border-box' }}
+          style={{ flex: 1, minWidth: 0, maxWidth: '100%', padding: '0.4em 0.6em', borderRadius: 6, border: '1px solid var(--color-accent)', background: 'var(--color-bg)', color: 'var(--color-on-bg)', fontSize: '0.95em', height: 36, boxSizing: 'border-box' }}
           onKeyDown={e => {
             if (suggestions.length > 0) {
               if (e.key === 'ArrowDown') {
@@ -550,45 +818,27 @@ function App() {
         />
         <button
           onClick={handleAddPlace}
-          disabled={animating || !input.trim() || !suggestions.some(s => s.place_name === input.trim())}
+          disabled={animating || !input.trim()}
           style={{
             ...buttonStyle,
             background: 'var(--color-accent)',
             color: 'var(--color-on-surface)',
-            opacity: animating || !input.trim() || !suggestions.some(s => s.place_name === input.trim()) ? 0.6 : 1,
-            cursor: animating || !input.trim() || !suggestions.some(s => s.place_name === input.trim()) ? 'not-allowed' : 'pointer',
-            height: 40,
-            marginRight: 8,
-            display: 'flex',
-            alignItems: 'center',
-            flexShrink: 0,
-            padding: '0.5em 0.9em',
-          }}
-        >
-          Add
-        </button>
-        <button
-          onClick={() => setAnimationRequested(true)}
-          disabled={animating || coords.length < 2}
-          style={{
-            ...buttonStyle,
-            background: 'var(--color-accent)',
-            color: 'var(--color-on-surface)',
-            opacity: animating || coords.length < 2 ? 0.6 : 1,
-            cursor: animating || coords.length < 2 ? 'not-allowed' : 'pointer',
-            height: 40,
+            opacity: animating || !input.trim() ? 0.6 : 1,
+            cursor: animating || !input.trim() ? 'not-allowed' : 'pointer',
+            height: 36,
             marginRight: 0,
             display: 'flex',
             alignItems: 'center',
             flexShrink: 0,
-            padding: '0.5em 0.9em',
+            padding: '0.4em 0.7em',
+            fontSize: '0.9em',
           }}
         >
-          Start Animation
+          Add
         </button>
       </div>
       {suggestions.length > 0 && (
-        <ul className="suggestions-list" style={{ background: 'var(--color-surface)', color: 'var(--color-on-surface)', borderRadius: 8, boxShadow: '0 2px 8px #0002', maxWidth: 420, margin: '0 auto', padding: 0, listStyle: 'none', position: 'relative', zIndex: 5 }}>
+        <ul className="suggestions-list" style={{ background: 'var(--color-surface)', color: 'var(--color-on-surface)', borderRadius: 8, boxShadow: '0 2px 8px #0002', maxWidth: '100%', margin: '0 auto 0.5em auto', padding: 0, listStyle: 'none', position: 'relative', zIndex: 5 }}>
           {suggestions.map((s, idx) => (
             <li
               key={s.id || idx}
@@ -596,10 +846,14 @@ function App() {
               style={{
                 background: highlightedIdx === idx ? 'var(--color-accent)' : 'transparent',
                 color: highlightedIdx === idx ? 'var(--color-bg)' : 'var(--color-on-surface)',
-                padding: '0.5em 0.8em',
+                padding: '0.4em 0.7em',
                 cursor: 'pointer',
                 borderRadius: 6,
                 fontWeight: highlightedIdx === idx ? 600 : 400,
+                fontSize: '0.9em',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
               }}
               onMouseEnter={() => setHighlightedIdx(idx)}
             >
@@ -611,16 +865,16 @@ function App() {
       <div
         className="places-list"
         ref={placesListRef}
-        style={{ background: 'var(--color-surface)', color: 'var(--color-on-surface)', borderRadius: 8, boxShadow: '0 1px 4px #0001', maxWidth: 420, width: '100%', margin: '0.7em auto', padding: '0.5em 0.7em', display: 'flex', flexDirection: 'column', gap: '0.3em', maxHeight: '12em', overflowY: 'auto', boxSizing: 'border-box', border: '2px solid var(--color-surface)' }}
+        style={{ background: 'var(--color-surface)', color: 'var(--color-on-surface)', borderRadius: 8, boxShadow: '0 1px 4px #0001', maxWidth: '100%', width: '100%', margin: '0 auto 0.8em auto', padding: '0.4em 0.6em', display: 'flex', flexDirection: 'column', gap: '0.25em', maxHeight: '10em', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid var(--color-accent)' }}
       >
         {places.map((place, idx) => (
           <span
             key={idx}
             ref={idx === places.length - 1 ? placesEndRef : undefined}
             tabIndex={-1}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.2em 0' }}
           >
-            <span style={{ flex: 1, color: 'var(--color-on-surface)' }}>{place}</span>
+            <span style={{ flex: 1, color: 'var(--color-on-surface)', fontSize: '0.9em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place}</span>
             <button
               aria-label={`Remove ${place}`}
               className="remove-btn"
@@ -628,14 +882,14 @@ function App() {
                 setPlaces(places.filter((_, i) => i !== idx));
               }}
               disabled={animating}
-              style={{ background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: '1.1em', padding: 0 }}
+              style={{ background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: '1.2em', padding: '2px 4px', minWidth: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               ×
             </button>
           </span>
         ))}
       </div>
-      <div ref={mapContainer} className="map-container" style={{ width: 'min(98vw, 900px)', height: '60vh', margin: '1.2em auto 0 auto', borderRadius: 14, boxShadow: '0 2px 12px #0002', border: '2px solid var(--color-surface)', maxWidth: '100%' }} />
+      <div ref={mapContainer} className="map-container" style={{ width: '100%', height: 'calc(100vh - 420px)', minHeight: '300px', margin: '0 auto', borderRadius: 12, boxShadow: '0 2px 12px #0002', border: '1px solid var(--color-accent)', maxWidth: '100%', boxSizing: 'border-box' }} />
     </div>
   );
 }
