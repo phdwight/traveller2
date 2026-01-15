@@ -1,5 +1,14 @@
 // Service for recording map animations to video
 
+export interface RecordingOptions {
+  frameRate?: number;
+  videoBitsPerSecond?: number;
+}
+
+export interface MapProvider {
+  getCanvas(): HTMLCanvasElement;
+}
+
 export class VideoRecordingService {
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
@@ -8,13 +17,15 @@ export class VideoRecordingService {
   /**
    * Start recording the map canvas
    */
-  async startRecording(map: { getCanvas: () => HTMLCanvasElement }): Promise<void> {
+  async startRecording(map: MapProvider, options: RecordingOptions = {}): Promise<void> {
     if (this.isRecording) {
       throw new Error('Already recording');
     }
 
+    const { frameRate = 30, videoBitsPerSecond = 2500000 } = options;
+
     const canvas = map.getCanvas();
-    const stream = canvas.captureStream(30); // 30 FPS
+    const stream = canvas.captureStream(frameRate);
 
     // Check for supported MIME types
     const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
@@ -23,7 +34,7 @@ export class VideoRecordingService {
 
     this.mediaRecorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: 2500000, // 2.5 Mbps
+      videoBitsPerSecond,
     });
 
     this.recordedChunks = [];

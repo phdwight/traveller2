@@ -2,6 +2,14 @@
 
 export type SoundType = 'start' | 'segment' | 'complete';
 
+/**
+ * Get AudioContext with browser compatibility
+ */
+function getAudioContext(): AudioContext {
+  const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  return new AudioContextClass();
+}
+
 export class SoundService {
   private enabled: boolean;
 
@@ -24,7 +32,7 @@ export class SoundService {
     if (!this.enabled) return;
 
     try {
-      const audioContext = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const audioContext = getAudioContext();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
 
