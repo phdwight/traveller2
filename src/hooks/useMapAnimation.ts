@@ -104,7 +104,7 @@ export function useMapAnimation(
         });
 
         // Smooth zoom: zoom in at start, hold, then zoom out at end
-        let zoom = 8;
+        let zoom: number;
         if (t < 0.18) {
           zoom = 8 + 2 * (t / 0.18); // 8 -> 10
         } else if (t > 0.82) {

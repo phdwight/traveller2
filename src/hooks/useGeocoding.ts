@@ -1,11 +1,14 @@
 // Custom hook for managing geocoding
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { GeocodingService } from '../services/GeocodingService';
 import type { Coordinates, MapboxFeature } from '../types';
 
 export function useGeocoding(accessToken: string | undefined) {
-  const [service] = useState(() => new GeocodingService(accessToken || ''));
+  const service = useMemo(
+    () => new GeocodingService(accessToken || ''),
+    [accessToken]
+  );
 
   return service;
 }
@@ -39,7 +42,8 @@ export function useGeocodedCoordinates(places: string[], geocodingService: Geoco
     return () => {
       cancelled = true;
     };
-  }, [places, geocodingService]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [places]);
 
   return { coords, loading };
 }
@@ -71,7 +75,8 @@ export function useSuggestions(input: string, geocodingService: GeocodingService
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [input, geocodingService]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input]);
 
   return suggestions;
 }

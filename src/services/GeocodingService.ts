@@ -44,16 +44,13 @@ export class GeocodingService {
    * Geocode multiple places to coordinates
    */
   async geocodeMultiple(places: string[]): Promise<Coordinates[]> {
-    const results: Coordinates[] = [];
-    
-    for (const place of places) {
-      const coord = await this.geocode(place);
-      if (coord) {
-        results.push(coord);
-      }
-    }
-    
-    return results;
+    const coordPromises = places.map((place) => this.geocode(place));
+    const coords = await Promise.all(coordPromises);
+
+    // Filter out any null results while preserving the Coordinates[] type
+    return coords.filter(
+      (coord): coord is Coordinates => coord !== null
+    );
   }
 
   /**
