@@ -73,6 +73,7 @@ export const themes: Theme[] = [
 
 /**
  * Get default theme index based on time of day
+ * Returns 0 (first theme) if theme name is not found
  */
 export function getDefaultThemeIdx(): number {
   const now = new Date();
@@ -80,11 +81,21 @@ export function getDefaultThemeIdx(): number {
   const m = now.getMinutes();
   const mins = h * 60 + m;
   
+  let themeName: string;
+  
   // 5:01am = 301, 9:00am = 540, 9:01am = 541, 17:00 = 1020, 17:01 = 1021, 19:00 = 1140
-  if (mins >= 301 && mins <= 540) return themes.findIndex(t => t.name === 'Golden Sunrise');
-  if (mins >= 541 && mins <= 1020) return themes.findIndex(t => t.name === 'Citrus Sky');
-  if (mins >= 1021 && mins <= 1140) return themes.findIndex(t => t.name === 'Sunset Coast');
-  return themes.findIndex(t => t.name === 'Vivid Night');
+  if (mins >= 301 && mins <= 540) {
+    themeName = 'Golden Sunrise';
+  } else if (mins >= 541 && mins <= 1020) {
+    themeName = 'Citrus Sky';
+  } else if (mins >= 1021 && mins <= 1140) {
+    themeName = 'Sunset Coast';
+  } else {
+    themeName = 'Vivid Night';
+  }
+  
+  const idx = themes.findIndex(t => t.name === themeName);
+  return idx !== -1 ? idx : 0; // Return 0 if theme not found
 }
 
 /**

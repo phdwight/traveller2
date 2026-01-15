@@ -72,6 +72,7 @@ export class VideoRecordingService {
 
       this.mediaRecorder.onerror = (event) => {
         this.isRecording = false;
+        this.recordedChunks = [];
         reject(event);
       };
 
@@ -90,7 +91,11 @@ export class VideoRecordingService {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    
+    // Delay revoking the URL to ensure download starts
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 100);
   }
 
   /**

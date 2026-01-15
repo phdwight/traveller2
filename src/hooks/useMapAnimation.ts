@@ -237,7 +237,8 @@ export function useMapAnimation(
     map.on('moveend', onMoveEnd);
 
     return cleanup;
-  }, [map, coords, shouldAnimate, options, soundService]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, coords, shouldAnimate, options.speed, options.isPaused, options.onSegmentComplete, options.onComplete, soundService]);
 
   return {
     markers: markersRef.current,
